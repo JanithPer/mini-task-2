@@ -1,0 +1,22 @@
+[project]
+name = "research-agent"
+version = "0.1.0"
+description = "Framework-free code-executing research agent with Docker sandbox and Textual TUI."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.90.0",
+    "python-dotenv>=1.0.1",
+    "requests>=2.32.0",
+    "textual>=0.80.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
