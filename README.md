@@ -2,7 +2,7 @@
 
 A framework-free Python research agent that plans, searches the web, reads and writes workspace files, executes Python and Bash in an ephemeral Docker sandbox, tracks usage, and streams execution trace events into a Textual TUI.
 
-![TUI Screenshot](screenshot.png)
+![TUI Screenshot](Screenshot.png)
 
 ## Setup
 
