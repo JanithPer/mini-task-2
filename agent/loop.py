@@ -7,7 +7,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from agent.cost_plot import write_cumulative_cost_plot
 from agent.cost_tracker import CostTracker
+from agent.gemini_cache import create_gemini_cache
+from agent.message_budget import cacheable_prefix_description, compact_messages_if_needed
 from agent.models import ModelDecision, ToolCallRecord, ToolResult
 from agent.openai_client import OpenAIClient
 from agent.planner import Planner
@@ -66,10 +69,28 @@ class ResearchAgent:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Question:\n{question}\n\nPlan:\n{plan}"},
         ]
+        state.cacheable_prefix_messages = 2
         self._emit(ThoughtEvent(f"Plan created:\n{plan}"))
+
+        if self.client.model_config.provider == "google":
+            api_key = os.getenv(self.client.model_config.api_key_env)
+            if api_key:
+                user_content = f"Question:\n{question}\n\nPlan:\n{plan}"
+                cache_name = await create_gemini_cache(
+                    api_key=api_key,
+                    model=self.client.model,
+                    system_prompt=SYSTEM_PROMPT,
+                    user_content=user_content,
+                )
+                if cache_name:
+                    state.gemini_cache_name = cache_name
+                    self.client.gemini_cache_name = cache_name
+                    self._emit(ThoughtEvent(f"Gemini context cache created: {cache_name}"))
 
         while state.iteration_count < MAX_ITERATIONS:
             state.iteration_count += 1
+            if compact_messages_if_needed(state):
+                self._emit(ThoughtEvent("Older tool output compacted to keep the prompt within the input-token budget."))
             try:
                 decision, usage = await self.client.decide(state.messages)
             except Exception as exc:
@@ -77,10 +98,13 @@ class ResearchAgent:
                 state.messages.append({"role": "user", "content": "Return valid JSON that follows the required schema."})
                 continue
 
+            previous_cost = state.estimated_cost
             state.estimated_cost = self.cost_tracker.update(state.token_usage, usage)
+            state.per_iteration_costs.append(state.estimated_cost - previous_cost)
             self._emit(CostEvent(
                 input_tokens=state.token_usage.input_tokens,
                 output_tokens=state.token_usage.output_tokens,
+                cached_input_tokens=state.token_usage.cached_input_tokens,
                 cost=state.estimated_cost,
                 iteration=state.iteration_count,
             ))
@@ -168,6 +192,17 @@ class ResearchAgent:
         if decision.tool in ("execute_python", "execute_bash") and result.ok and known_root_files is not None:
             for path in self._files_at(self.workspace.parent) - known_root_files:
                 state.add_generated_file(path)
+        if result.ok and isinstance(result.output, dict):
+            new_files = result.output.get("new_files", [])
+            for file_path in new_files:
+                path_str = str(file_path)
+                if path_str.startswith("/workspace/"):
+                    local_path = self.workspace / path_str[len("/workspace/"):]
+                elif path_str == "/workspace":
+                    local_path = self.workspace
+                else:
+                    local_path = Path(path_str)
+                state.add_generated_file(local_path.resolve())
 
     def _workspace_files(self) -> set[Path]:
         return self._files_at(self.workspace)
@@ -188,10 +223,16 @@ class ResearchAgent:
             self.event_sink(event)
 
     def _write_trace_summary(self, state: AgentState) -> None:
-        trace_path = self.traces_dir / f"trace-{int(time.time())}.json"
+        trace_id = int(time.time())
+        trace_path = self.traces_dir / f"trace-{trace_id}.json"
+        cost_plot_path = self.traces_dir / f"trace-{trace_id}-cumulative-cost.png"
+        plotted_path = write_cumulative_cost_plot(state.per_iteration_costs, cost_plot_path)
         payload: dict[str, Any] = {
             "question": state.question,
             "iterations": state.iteration_count,
+            "cacheable_prefix": cacheable_prefix_description(state),
+            "gemini_cache_name": state.gemini_cache_name,
+            "message_truncations": state.message_truncations,
             "tool_calls": [
                 {
                     "name": call.name,
@@ -204,7 +245,10 @@ class ResearchAgent:
             ],
             "generated_files": [str(path) for path in state.generated_files],
             "cost": state.estimated_cost,
+            "per_iteration_costs": state.per_iteration_costs,
+            "cumulative_cost_plot": str(plotted_path) if plotted_path else None,
             "input_tokens": state.token_usage.input_tokens,
+            "cached_input_tokens": state.token_usage.cached_input_tokens,
             "output_tokens": state.token_usage.output_tokens,
             "final_answer": state.final_answer,
         }

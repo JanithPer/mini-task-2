@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import requests
+import httpx
 
 from agent.models import ToolResult
 
@@ -22,17 +22,18 @@ class WebSearchTool:
             return ToolResult(ok=False, output=None, error="TAVILY_API_KEY is not configured.")
 
         try:
-            response = requests.post(
-                "https://api.tavily.com/search",
-                json={
-                    "api_key": self.api_key,
-                    "query": query,
-                    "search_depth": payload.get("search_depth", "advanced"),
-                    "max_results": int(payload.get("max_results", 5)),
-                    "include_answer": False,
-                },
-                timeout=30,
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": self.api_key,
+                        "query": query,
+                        "search_depth": payload.get("search_depth", "advanced"),
+                        "max_results": int(payload.get("max_results", 5)),
+                        "include_answer": False,
+                    },
+                    timeout=30,
+                )
             response.raise_for_status()
             data = response.json()
             results = [

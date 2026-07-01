@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from typing import Any
@@ -9,10 +10,14 @@ from openai import AsyncOpenAI
 from agent.models import ModelConfig, ModelDecision, TokenUsage, get_configured_model, resolve_model
 
 
+CACHEABLE_PREFIX_SIZE = 2
+
+
 class OpenAIClient:
-    def __init__(self, model: str | ModelConfig | None = None) -> None:
+    def __init__(self, model: str | ModelConfig | None = None, gemini_cache_name: str | None = None) -> None:
         self.model_config = resolve_model(model) if model else get_configured_model()
         self.model = self.model_config.name
+        self.gemini_cache_name = gemini_cache_name
         api_key = os.getenv(self.model_config.api_key_env)
         if not api_key:
             raise ValueError(f"Missing {self.model_config.api_key_env} for model {self.model!r}.")
@@ -22,16 +27,30 @@ class OpenAIClient:
         )
 
     async def decide(self, messages: list[dict[str, Any]]) -> tuple[ModelDecision, TokenUsage]:
+        create_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "response_format": {"type": "json_object"},
+        }
+        if self.model_config.provider == "openai":
+            create_kwargs["messages"] = messages
+            create_kwargs["prompt_cache_key"] = _prompt_cache_key(messages)
+            if retention := os.getenv("OPENAI_PROMPT_CACHE_RETENTION"):
+                create_kwargs["prompt_cache_retention"] = retention
+        elif self.model_config.provider == "google" and self.gemini_cache_name:
+            create_kwargs["messages"] = messages[CACHEABLE_PREFIX_SIZE:]
+            create_kwargs["extra_body"] = {"cached_content": self.gemini_cache_name}
+        else:
+            create_kwargs["messages"] = messages
+
         response = await self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            response_format={"type": "json_object"},
+            **create_kwargs,
         )
         content = response.choices[0].message.content or "{}"
         usage = response.usage
         token_usage = TokenUsage(
             input_tokens=getattr(usage, "prompt_tokens", 0) or 0,
             output_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            cached_input_tokens=_cached_prompt_tokens(usage),
         )
         return parse_decision(content), token_usage
 
@@ -41,6 +60,28 @@ class OpenAIClient:
             messages=messages,
         )
         return response.choices[0].message.content or ""
+
+
+def _prompt_cache_key(messages: list[dict[str, Any]], prefix_messages: int = 2) -> str:
+    stable_prefix = messages[:prefix_messages]
+    serialized = json.dumps(stable_prefix, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:24]
+    return f"research-agent-{digest}"
+
+
+def _cached_prompt_tokens(usage: Any) -> int:
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details is not None:
+        if isinstance(details, dict):
+            val = details.get("cached_tokens")
+        else:
+            val = getattr(details, "cached_tokens", None)
+        if val:
+            return int(val)
+    v = getattr(usage, "cached_content_token_count", None)
+    if v:
+        return int(v)
+    return 0
 
 
 def parse_decision(content: str) -> ModelDecision:

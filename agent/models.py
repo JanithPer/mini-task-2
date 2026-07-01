@@ -26,12 +26,14 @@ class ModelConfig:
     base_url: str | None = None
 
 
+# Source: https://developers.openai.com/api/docs/pricing | 2026-07-01
 OPENAI_DEFAULT_MODEL = ModelConfig(
     name="gpt-5.4-mini",
     provider="openai",
     api_key_env="OPENAI_API_KEY",
     pricing=TokenPricing(input_rate_per_million=0.75, output_rate_per_million=4.50),
 )
+# Source: https://ai.google.dev/gemini-api/docs/pricing | 2026-07-01
 GEMINI_3_5_FLASH = ModelConfig(
     name="gemini-3.5-flash",
     provider="google",
@@ -39,6 +41,7 @@ GEMINI_3_5_FLASH = ModelConfig(
     pricing=TokenPricing(input_rate_per_million=1.5, output_rate_per_million=9.0),
     base_url=GEMINI_OPENAI_BASE_URL,
 )
+# Source: https://ai.google.dev/gemini-api/docs/pricing | 2026-07-01
 GEMINI_3_1_FLASH_LITE = ModelConfig(
     name="gemini-3.1-flash-lite",
     provider="google",
@@ -96,6 +99,7 @@ class ModelDecision:
 class TokenUsage:
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_input_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:

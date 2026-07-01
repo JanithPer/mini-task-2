@@ -20,6 +20,10 @@ class AgentState:
     generated_files: list[Path] = field(default_factory=list)
     token_usage: TokenUsage = field(default_factory=TokenUsage)
     estimated_cost: float = 0.0
+    per_iteration_costs: list[float] = field(default_factory=list)
+    cacheable_prefix_messages: int = 0
+    gemini_cache_name: str | None = None
+    message_truncations: int = 0
     final_answer: str | None = None
     started_at: float = field(default_factory=time.monotonic)
     completed_at: float | None = None
@@ -42,6 +46,7 @@ class AgentState:
                 f"Question: {self.question}",
                 f"Iterations: {self.iteration_count}",
                 f"Input Tokens: {self.token_usage.input_tokens:,}",
+                f"Cached Input Tokens: {self.token_usage.cached_input_tokens:,}",
                 f"Output Tokens: {self.token_usage.output_tokens:,}",
                 f"Total Tokens: {self.token_usage.total_tokens:,}",
                 f"Total Cost: ${self.estimated_cost:.4f}",

@@ -20,9 +20,11 @@ class CostTracker:
     def update(self, usage: TokenUsage, delta: TokenUsage) -> float:
         usage.input_tokens += delta.input_tokens
         usage.output_tokens += delta.output_tokens
+        usage.cached_input_tokens += delta.cached_input_tokens
         return self.estimate(usage)
 
     def estimate(self, usage: TokenUsage) -> float:
-        input_cost = usage.input_tokens / 1_000_000 * self.input_rate_per_million
+        billable_input = max(0, usage.input_tokens - usage.cached_input_tokens)
+        input_cost = billable_input / 1_000_000 * self.input_rate_per_million
         output_cost = usage.output_tokens / 1_000_000 * self.output_rate_per_million
         return input_cost + output_cost

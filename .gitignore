@@ -14,5 +14,4 @@ workspaces/*
 !workspaces/default/.gitkeep
 sandbox/workspace/*
 !sandbox/workspace/.gitkeep
-.venv/
 

@@ -31,9 +31,9 @@ class AnswerEvent:
 class CostEvent:
     input_tokens: int
     output_tokens: int
+    cached_input_tokens: int
     cost: float
     iteration: int
 
 
 TraceEvent = ThoughtEvent | ToolCallEvent | ToolResultEvent | AnswerEvent | CostEvent
-

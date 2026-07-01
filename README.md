@@ -84,3 +84,4 @@ main.py
 - The agent stops after 30 iterations.
 - Trace JSON files are written to `traces/` after each run.
 - Supports OpenAI-compatible providers (OpenAI, Gemini via OpenAI-compatible endpoint).
+
